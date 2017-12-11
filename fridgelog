@@ -1,0 +1,1115 @@
+__author__ = 'Clayton Knittel'
+__version__ = '1.0.0'
+
+
+from datetime import datetime
+import time
+import _thread
+
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+
+""" ImageDraw done from top left of screen """
+
+file_type = '.txt'
+# file_type = '.log'
+
+location = '/Users/claytonknittel/PycharmProjects/practice/LOG/'
+# location = 'C:/LOG/'
+
+save_to_location = '/Users/claytonknittel/downloads/'
+# save_to_location = 'Z:/FridgeLog/'
+
+font_location = '/Users/claytonknittel/PycharmProjects/practice/CenturyGothic.ttf'
+# font_location = 'C:/Users/Dian/Documents/CenturyGothic.ttf'
+
+loop = False
+
+graph_data_location = ('T', 6)
+graph_time = 60 ** 2 * 3
+
+
+# returns True if the string input is an
+# integer, and False otherwise
+def is_number(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        pass
+    return False
+
+
+# returns the order of magnitude of a value.
+# i.e. order_of_magnitude(130) = 2
+# and order_of_magnitude(.0014) = -3
+def order_of_magnitude(val):
+    if val == 0:
+        return 1
+    val = abs(val)
+    scale = 1
+    while val * scale < 1:
+        scale *= 10
+    while val * scale >= 10:
+        scale /= 10
+    return scale
+
+
+# rounds a number to n significant figures
+def round_to_n_digits(val, n):
+    scale = order_of_magnitude(val)
+    return int(val * scale * (10 ** n) + .5) / (10 ** n * scale)
+
+
+width, height = 2048, 2048
+font = ImageFont.truetype(font_location, 30)
+
+bg_color = '#ffffff'
+axis_color = '#969696'
+graph_color = '#6dceab'
+title_color = '#000000'
+table_color = '#000000'
+word_color = axis_color
+cell_word_color = '#000000'
+
+line_width = 3
+
+
+table_sig_figs = 3
+
+
+# represents one line from the data stored in LOG.
+# each OutputLine has the date, time, and value of the
+# data being recorded.
+class OutputLine:
+
+    __time = None
+    __value = 0
+    __format = False
+    temperature_format = True
+    maxiguage_format = False
+
+    def __init__(self, output, data_format, chamber=0):
+        s = output.split(',')
+        self.__format = data_format
+        if self.__format:
+            self.__time = Time(str(s[1]))
+            self.__value = self.__create_temp(str(s[2]))
+        else:
+            self.__time = Time(str(s[1]))
+            self.__value = self.__create_temp(str(s[6 * chamber - 1])[1:])
+
+    @staticmethod
+    def __create_temp(temp):
+        return float(temp)
+
+    def get_time(self):
+        return self.__time
+
+    def get_value(self):
+        return self.__value
+
+    def add_n_days(self, n):
+        self.__time.add_n_days(n)
+
+    def tostring(self):
+        return self.__time.tostring() + ' ' + str(self.__value)
+
+
+# a Date stores a list [year, month, day]
+class Date:
+
+    __date = []
+    __days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    def __init__(self, date):
+        self.__date = []
+        s = date.split('-')
+        self.__date.append(int(s[0]))
+        self.__date.append(int(s[1]))
+        self.__date.append(int(s[2][:2]))
+
+    def get_date(self):
+        return self.__date
+
+    def get_day(self):
+        return self.__date[2]
+
+    def get_month(self):
+        return self.__date[1]
+
+    def get_year(self):
+        return self.__date[0] % 100
+
+    @staticmethod
+    def num_string(n):
+        if n < 10:
+            p = '0'
+        else:
+            p = ''
+        return p + str(n)
+
+    def is_later(self, date):
+        if self.get_year() == date.get_year():
+            if self.get_month() == date.get_month():
+                return self.get_day() >= date.get_day()
+            return self.get_month() > date.get_month()
+        return self.get_year() > date.get_year()
+
+    def subtract(self):
+        if self.get_day() == 1:
+            self.__date[1] -= 1
+            if self.get_month() == 0:
+                self.__date[1] = 12
+                self.__date[0] -= 1
+            self.__date[2] = self.__days_in_month[int(self.__date[1])]
+            return
+        self.__date[2] -= 1
+
+    # returns a new Date that is n days before this one
+    def get_n_days_ago(self, n):
+        new_date = Date(self.get_full_date())
+        while n > 0:
+            new_date.subtract()
+            n -= 1
+        return new_date
+
+    # returns a string representation of this Date in the format 'yyyy-mm-dd'
+    def get_full_date(self):
+        return str(self.__date[0]) + '-' + str(self.__date[1]) + '-' + str(self.__date[2])
+
+    # returns a string representation of this Date in the format 'yy-mm-dd'
+    def tostring(self):
+        return Date.num_string(self.get_year()) + '-' + Date.num_string(self.get_month())\
+               + '-' + Date.num_string(self.get_day())
+
+    # returns a string representation of this Date in the format 'Month day, year'
+    def to_string_display(self):
+        year = str(self.__date[0])
+        if self.get_month() == 1:
+            month = 'January'
+        elif self.get_month() == 2:
+            month = 'February'
+        elif self.get_month() == 3:
+            month = 'March'
+        elif self.get_month() == 4:
+            month = 'April'
+        elif self.get_month() == 5:
+            month = 'May'
+        elif self.get_month() == 6:
+            month = 'June'
+        elif self.get_month() == 7:
+            month = 'July'
+        elif self.get_month() == 8:
+            month = 'August'
+        elif self.get_month() == 9:
+            month = 'September'
+        elif self.get_month() == 10:
+            month = 'October'
+        elif self.get_month() == 11:
+            month = 'November'
+        else:
+            month = 'December'
+        if self.get_day() == 1:
+            d = 'st'
+        elif self.get_day() == 2:
+            d = 'nd'
+        elif self.get_day() == 3:
+            d = 'rd'
+        else:
+            d = 'th'
+        return month + ' ' + str(self.get_day()) + d + ', ' + year
+
+
+# stores a time as an integer representing the number of seconds past 12:00 am it is
+class Time:
+
+    __time = 0
+
+    def __init__(self, timedata):
+        self.__time = self.__create_time(timedata)
+
+    # takes in a string of the time as stored in the LOG files
+    # in the format hr:min:sec
+    @staticmethod
+    def __create_time(timedata):
+        splitnums = timedata.split(':')
+        s = []
+        for x in range(0, len(splitnums)):
+            s.append(float(splitnums[x]))
+        return Time.get_time_from_array(s)
+
+    # returns the time in seconds past midnight
+    def get_time(self):
+        return self.__time
+
+    # returns the time in seconds past midnight from an array of the form
+    # [hour, minutes, seconds]
+    @staticmethod
+    def get_time_from_array(times):
+        return int(times[2] + 60 * (times[1] + 60 * (times[0])))
+
+    # returns 'am' or 'pm' based on the time of day the input (in seconds) is
+    # referring to
+    @staticmethod
+    def is_morning(seconds):
+        if seconds % Time.seconds_in_day() < 12 * (60 ** 2):
+            return "am"
+        return "pm"
+
+    # returns the hour (1-12) as a string
+    def __get_hour_string(self):
+        return str(Time.get_hour(self.__time))
+
+    # adds n days to this Time (used for the Graph when multiple days are being represented)
+    def add_n_days(self, n):
+        self.__time += n * Time.seconds_in_day()
+
+    # returns the hour (1-12) of an input number of seconds, as an integer
+    @staticmethod
+    def get_hour(seconds):
+        return int((seconds // (60 ** 2) + 11) % 12 + 1)
+
+    # returns the minutes (1-60) of an input time as a string
+    @staticmethod
+    def get_minutes(seconds):
+        return Time.__get_time_string((seconds // 60) % 60)
+
+    # returns the seconds (1-60) of an input time as a string
+    @staticmethod
+    def get_seconds(seconds):
+        return Time.__get_time_string(seconds % 60)
+
+    # used to format times as strings. If the input is less than 10,
+    # it returns '0' plus the number, otherwise it just returns the number
+    # i.e. __get_time_string(4) returns '04' and __get_time_string(44) returns '44'
+    @staticmethod
+    def __get_time_string(num):
+        if num >= 10:
+            return str(int(num))
+        return "0" + str(int(num))
+
+    # returns this Time as a string in the form 'hr:min.sec'
+    def tostring(self):
+        return Time.get_time_from_seconds(self.__time)
+
+    # returns this Time as a string in the form 'hr:min.sec'
+    @staticmethod
+    def get_time_from_seconds(seconds):
+        pod = Time.is_morning(seconds)
+        return str(Time.get_hour(seconds)) + ":" + str(Time.get_minutes(seconds))\
+            + "." + str(Time.get_seconds(seconds)) + " " + pod
+
+    # returns the given seconds as a string in the form 'hr:min'
+    @staticmethod
+    def get_time_without_seconds(seconds):
+        pod = Time.is_morning(seconds)
+        return str(Time.get_hour(seconds)) + ":" + str(Time.get_minutes(seconds)) + " " + pod
+
+    # returns the number of seconds in a day
+    @staticmethod
+    def seconds_in_day():
+        return (60 ** 2) * 24
+
+
+# FridgeFile stores information about where files are stored that are to be read,
+# and it can return the outputs from a given file in the form of a list of OutputLines
+class FridgeFile:
+
+    # the day from which the data will be read
+    __date = ''
+
+    # either 'T', 'R', or 'P', which is the type of data to be read from the given chamber
+    __data_type = ''
+
+    # the chamber (1 - 6) where this data is from
+    __chamber = 0
+
+    # the File in the location of the given fridge log data
+    __file = None
+
+    # a list of OutputLines in this File
+    __outputs = None
+
+    # False if it is a maxigauge file, otherwise True
+    __format = False
+
+    # a list of strings that are from the .log files in LOG
+    __read_lines = None
+
+    def __init__(self, date, data_format, data_type='T', chamber=0):
+        self.__date = date
+        self.__data_type = data_type
+        self.__chamber = chamber
+        self.__file = None
+        self.__outputs = None
+        self.__format = data_format
+
+    # opens this File
+    def open(self):
+        self.__file = open(self.tostring(), 'r')
+
+    # closes this File
+    def close(self):
+        self.__file.close()
+
+    # reads the data from this File and stores it in __read_lines
+    def readlines(self):
+        if self.__read_lines is None:
+            self.__read_lines = self.__file.readlines()
+        return self.__read_lines
+
+    # returns the last measurement recorded on this day
+    def get_last_measurement(self, chamber=0):
+        outputs = self.get_outputs(chamber=chamber)
+        return outputs[len(outputs) - 1].get_value()
+
+    # returns the time of the last measurement recorded
+    def get_last_measurement_time(self):
+        outputs = self.get_outputs()
+        return outputs[len(outputs) - 1].get_time().get_time()
+
+    # returns whether or not more files will need to be open (because the data
+    # trying to be read extends before the beginning of this day)
+    def is_first_measurement_time_yesterday(self):
+        outputs = self.get_outputs()
+        return outputs[len(outputs) - 1].get_time().get_time() <= graph_time
+
+    # returns the list of OutputLines created from the data in this file
+    def __get_outputs(self, chamber=0):
+        outputs = []
+        for x in self.readlines():
+            outputs.append(OutputLine(x, self.__format, chamber=chamber))
+        return outputs
+
+    # returns a specific selection of OutputLines from __output_lines
+    def get_outputs(self, from_time=0, to_time=Time.seconds_in_day(), add_n_days=0, chamber=0):
+        if self.__outputs is None or chamber > 0:
+            self.__outputs = self.__get_outputs(chamber=chamber)
+        ret = []
+        for x in range(0, len(self.__outputs)):
+            if from_time <= self.__outputs[x].get_time().get_time() <= to_time:
+                val = self.__outputs[x]
+                val.add_n_days(add_n_days)
+                ret.append(val)
+        return ret
+
+    # returns this FridgeFile's file location
+    def tostring(self):
+        if self.__format:
+            return FridgeFile.to_string(self.__date, self.__data_type, self.__chamber)
+        return FridgeFile.to_string(self.__date, data_type='maxigauge')
+
+    # returns the file location of the data from day date in chamber chamber
+    # of type data_type
+    @staticmethod
+    def to_string(date, data_type='T', chamber=0):
+        if chamber != 0:
+            ch = 'CH' + str(chamber) + ' '
+        else:
+            ch = ''
+        return location + date + '/' + ch + data_type + ' ' + date + file_type
+
+
+# an abstract representation of anything to be displayed on the .png image
+#
+# containts a location (as an ordered pair of floats ranging from 0.0 to 1.0),
+# a width, and a height of the component
+class ImageComponent:
+
+    # floats from 0 to 1
+    # pos is top left of object
+    __pos = ()
+    __width = 0
+    __height = 0
+
+    def __init__(self, p, w, h):
+        self.__width = w
+        self.__height = h
+        self.__pos = p
+
+    def get_width(self):
+        return self.__width
+
+    def get_height(self):
+        return self.__height
+
+    # sets the width, height to dim[0], dim[1], respectively
+    def set_size(self, dim):
+        self.__width = dim[0]
+        self.__height = dim[1]
+
+    def get_x(self):
+        return self.__pos[0]
+
+    def get_y(self):
+        return self.__pos[1]
+
+    def get_pos(self):
+        return self.__pos
+
+    # adds the input tuple to this position
+    def move(self, pos):
+        self.__pos = (self.get_x() + pos[0], self.get_y() + pos[1])
+
+
+# an ImageComponent that is capable of drawing text to the image. It also is capable
+# of converting input numbers of a given unit into more readable units
+class TextBox(ImageComponent):
+
+    # the text to be drawn to the image
+    __text = ""
+
+    # True if this TextBox is the title of something, False otherwise
+    __is_title = False
+
+    # True if this TextBox is for data on the vertical axis, False otherwise
+    __is_vertical_axis = False
+
+    # True if this data is in a Table
+    __is_cell = False
+
+    # if this text is a number, this is the units that number is in
+    __units = ""
+
+    unit_small_prefixes = ('m', '\u03bc', 'n', 'p', 'f', 'a')
+    unit_large_prefixes = ('k', 'M', 'G', 'T', 'P', 'E')
+
+    # pos is position on axis to which the text refers
+    def __init__(self, text, pos, is_vertical_axis=False, is_title=False, is_cell=False, units=""):
+        self.__units = units
+        self.__text = str(text)
+        ImageComponent.__init__(self, pos, font.getsize(self.get_text_str())[0], font.getsize(self.get_text_str())[1])
+        self.__is_title = is_title
+        self.__is_cell = is_cell
+        self.__is_vertical_axis = is_vertical_axis
+
+    # updates the dimensions of the TextBox in the ImageComponent class. Called whenever the text
+    # is changed
+    def update_size(self):
+        self.set_size(font.getsize(self.get_text_str()))
+
+    # returns the text in this box as a string
+    def get_text(self):
+        return self.__text
+
+    # if this TextBox is a number, it returns that number, otherwise returning 1
+    def get_value(self):
+        try:
+            return float(self.__text)
+        except ValueError:
+            return 1
+
+    # scales the value of this TextBox by the input value, if the TextBox
+    # is a number
+    def scale(self, scale):
+        try:
+            float(self.__text)
+        except ValueError:
+            return
+        self.__text = str(float(self.__text) * scale)
+        self.update_size()
+
+    # returns the scientific notation form of the number in this TextBox
+    @staticmethod
+    def get_scientific(text):
+        num = float(text)
+        scale = 0
+        if num > 0:
+            while num * (10 ** -scale) < 1:
+                scale -= 1
+            while num * (10 ** -scale) >= 10:
+                scale += 1
+        if scale == 0 or scale == 1:
+            return str(round_to_n_digits(text, table_sig_figs))
+        return str(round_to_n_digits(text * (10 ** -scale), table_sig_figs)) + "e" + str(scale)
+
+    # draws the TextBox to the Image img with the drawing strategy draw
+    def draw(self, img, draw):
+        px, py = self.get_x() * img.width, self.get_y() * img.height
+        pos = []
+        if self.__is_cell:
+            pos.append(px - self.get_width() / 2)
+            pos.append(py - self.get_height() / 2)
+        elif self.__is_vertical_axis:
+            pos.append(px - self.get_width() - .023 * img.width)
+            pos.append(py - self.get_height() / 2)
+        else:
+            pos.append(px - self.get_width() / 2)
+            pos.append(py + self.get_height() * 1.5)
+
+        if self.__is_title:
+            color = title_color
+        elif self.__is_cell:
+            color = cell_word_color
+        else:
+            color = word_color
+        draw.text(pos, self.get_text_str(), font=font, fill=color)
+
+    # if the text is not a number, returns the text,
+    # otherwise, if the units are 'numeral', returns an integer form of this number,
+    # otherwise, if the units are something else, it returns the number scaled correctly (between 0.1 and 100)
+    # with the scaled form of the units (i.e. mm, nm, or km),
+    # othwerise, if the units are empty, it returns the scientific notation form of the number
+    def get_text_str(self):
+        try:
+            float(self.__text)
+        except ValueError:
+            return self.__text
+        if self.__units == 'numeral':
+            return str(int(float(self.__text)))
+        if self.__units == '':
+            return self.get_scientific(float(self.__text))
+        text = float(self.__text)
+        factor, pref = TextBox.get_prefix(text)
+        return str(round_to_n_digits(text * (1000 ** factor), table_sig_figs)) + ' ' + pref + self.__units
+
+    # figures out which prefix to given units (m (milli), k (kilo), M (mega), etc.)
+    # to use for a given input number, and then returns the factor of 1000 the number was
+    # scaled by and the prefix of the units to be used
+    @staticmethod
+    def get_prefix(num):
+        factor = 0
+        while num * (1000 ** factor) < .1:
+            factor += 1
+        while num * (1000 ** factor) >= 100:
+            factor -= 1
+        if factor < 0:
+            return factor, TextBox.unit_large_prefixes[factor - 1]
+        elif factor > 0:
+            return factor, TextBox.unit_small_prefixes[factor - 1]
+        return factor, ''
+
+
+# either vertical or horizonal, Axis instances have a list of markings (the lines drawn on the axes
+# to indicate fine measurements) and measures (the values of specifically chosen places on the axis).
+#
+# an Axis can also have units, and if so, it will scale the numbers on that axis to be shown in nicer
+# terms (between 0.1 and 100) and will label the axis with the appropriate scaled units.
+class Axis(ImageComponent):
+
+    # list of ordered pairs (position (away from origin), length)
+    __markings = []
+
+    # list of ordered pairs (position (away from origin), value)
+    __measures = []
+
+    # True if this is the vertical axis, False otherwise
+    __is_vertical_axis = False
+
+    # the desired number of axis markings to be shown. Should be a power of 2
+    __num_axis_markings = 0
+
+    # the units of the numbers on this axis, if appropriate
+    __units = ""
+
+    # initializes an Axis
+    def __init__(self, graph, pos, length, is_vertical_axis, axis_markings=32, axis_label="", units=""):
+        self.__is_vertical_axis = is_vertical_axis
+        if is_vertical_axis:
+            x, y = .01, length
+        else:
+            x, y = length, .01
+        ImageComponent.__init__(self, pos, x, y)
+        self.__markings = []
+        self.__measures = []
+        self.__units = units
+        self.__num_axis_markings = axis_markings
+        self.__define_axis_markings(graph)
+        if axis_label != "":
+            self.__create_label(axis_label, True)
+
+    # creates a label at the top, if vertical axis, or bottom, if horizonal axis, to
+    # indicate what measure is being displayed
+    def __create_label(self, label, is_title=False):
+        if self.__is_vertical_axis:
+            factor, pref = TextBox.get_prefix(self.__get_med_value())
+            self.__add_measure_text(label + '(' + pref + self.__units + ')',
+                                    (self.get_x() + 2 * self.get_width(), self.get_y() - self.get_height() * 1.03),
+                                    is_title)
+            for x in self.__measures:
+                x.scale(1000 ** factor)
+
+    # finds good places to make axis markings, given the desired number of axis markings
+    def __define_axis_markings(self, graph):
+        if self.__is_vertical_axis:
+            max_temp = graph.get_max_temp()
+            min_temp = graph.get_min_temp()
+            min_temp -= (max_temp - min_temp) / (1 / Graph.distance_between_min_and_x_axis - 1)
+            start, stop, increment = self.__find_nice_measure_vals(min_temp, max_temp)
+
+            x = 0
+            while start + x * increment < stop:
+                if max_temp >= start + x * increment >= min_temp:
+                    self.__add_mark(start + x * increment, x, max_temp, min_temp)
+                x += 1
+        else:
+            max_time = graph.get_max_time()
+            min_time = graph.get_min_time()
+            start, stop, increment = self.__find_nice_time_vals(min_time, max_time)
+
+            x = 0
+            while start + x * increment < stop:
+                if max_time >= start + x * increment >= min_time:
+                    self.__add_mark(start + x * increment, x, max_time, min_time)
+                x += 1
+
+    # adds a mark to the Axis with the given value, ordinal (of axis markings),
+    # max value, and min value on this axis
+    def __add_mark(self, value, x, maxx, minn):
+        length = 1
+        while x % 2 == 0 and length < 8:
+            length *= 2
+            x /= 2
+
+        if length > 4:
+            self.__add_measure(value, minn, maxx)
+        length += 2
+
+        self.__markings.append(((value - minn) / (maxx - minn), length))
+
+    # adds a measure label at the given value. Works similarly to __add_mark.
+    #
+    # if is_title, the color of the text will be title_color rather than word_color
+    def __add_measure(self, value, minn=0, maxx=1, is_title=False):
+        # need * self.get_height() because textboxes have absolute coordinates, while marks are drawn in
+        # the axis draw method, and are thus drawn with respect to the axis
+        if self.__is_vertical_axis:
+            self.__add_measure_text(round_to_n_digits(value, 4), (self.get_x(), self.get_y()
+                                                                  - ((value - minn) / (maxx - minn))
+                                    * self.get_height()), is_title)
+        else:
+            value = self.__round_mod_60(value)
+            self.__add_measure_text(Time.get_time_without_seconds(value), (self.get_x() + (value - minn) /
+                                                                           (maxx - minn) * self.get_width(),
+                                                                           self.get_y()), is_title)
+
+    # adds the text at position pos to the list of measures
+    def __add_measure_text(self, text, pos, is_title=False):
+        self.__measures.append(TextBox(text, pos, self.__is_vertical_axis, is_title))
+
+    # rounds this number to the nearest multiple of 60
+    @staticmethod
+    def __round_mod_60(val):
+        difference = val % 60
+        val -= difference
+        if difference >= 30:
+            val += 60
+        return val
+
+    # finds nice places to start and stop measuring on the vertical axis,
+    # given the minimum and maximum value on the vertical axis
+    def __find_nice_measure_vals(self, minval, maxval):
+        scale = order_of_magnitude(maxval - minval)
+        start = max(int(minval * order_of_magnitude(minval)) / order_of_magnitude(minval) * scale, 0)
+        stop = Axis.__roof(maxval * order_of_magnitude(maxval)) / order_of_magnitude(maxval) * scale
+        increment = self.__round((maxval - minval) * scale)
+        return start / scale, stop / scale, increment / scale / self.__num_axis_markings
+
+    # finds nice places to start and stop measuring on the horizontal axis,
+    # given the first and last time of measurement of the data being displayed
+    # on this Graph
+    def __find_nice_time_vals(self, min_time, max_time):
+        start = min_time - min_time % 3600
+        stop = max_time - max_time % 3600 + 3600
+        increment = (stop - start) / self.__num_axis_markings
+        increment -= increment % (7200 / self.__num_axis_markings)
+        return start, stop, increment
+
+    # rounds this number to one significant figure
+    @staticmethod
+    def __round(num):
+        scale = order_of_magnitude(num)
+        if num * scale % 1 < .5:
+            return int(num * scale) / scale
+        return int(num * scale + 1) / scale
+
+    # returns the smallest integer greater than or equal to it
+    @staticmethod
+    def __roof(val):
+        if val == int(val):
+            return val
+        return int(val) + 1
+
+    # returns approximately the middle value on the vertical axis
+    def __get_med_value(self):
+        return self.__measures[int(len(self.__measures) / 2)].get_value()
+
+    # draws this axis and all labels associated with it
+    def draw(self, img, draw):
+        w = img.width
+        h = img.height
+        position = (self.get_x() * w, self.get_y() * h)
+
+        for x in self.__measures:
+            x.draw(img, draw)
+
+        if self.__is_vertical_axis:
+            for x in self.__markings:
+                draw.line([(position[0] - 4 * x[1], position[1] - h * self.get_height() * x[0]),
+                           (position[0], position[1] - h * self.get_height() * x[0])],
+                          fill=axis_color, width=line_width)
+        else:
+            pass
+            for x in self.__markings:
+                draw.line([(position[0] + w * self.get_width() * x[0], position[1]),
+                           (position[0] + w * self.get_width() * x[0], position[1] + 4 * x[1])],
+                          fill=axis_color, width=line_width)
+
+
+# each Graph contains a list of output values (temperature in this case), a tuple of axes,
+# a value for the width of the data function being drawn, and a proportion of the graph
+# to be left blank between the minimum value and the x-axis
+class Graph(ImageComponent):
+
+    # a list of all output data (time of recording and value)
+    __outputs = []
+
+    # a tuple of Axis instances (one vertical and one horizontal)
+    __axes = ()
+
+    # the width of the function visualizing the data on the graph
+    __graph_width = 1
+
+    # the proportion of the graph to be left blank between the minimum value and the x-axis
+    distance_between_min_and_x_axis = .12
+
+    # initializes a Graph instance
+    def __init__(self, output_list, pos, x, y, graph_width=1):
+        ImageComponent.__init__(self, pos, x, y)
+        self.__outputs = output_list
+        self.__define_axes()
+        self.__graph_width = graph_width
+
+    # creates the vertical and horizontal axis for this Graph
+    def __define_axes(self):
+        self.__axes = (Axis(self, (self.get_pos()[0], self.get_pos()[1] + self.get_height()), self.get_width(), False),
+                       Axis(self, (self.get_pos()[0], self.get_pos()[1] + self.get_height()), self.get_height(), True,
+                            axis_label="Temperature", units='K'))
+
+    # returns the list of data this Graph is displaying
+    def get_outputs(self):
+        return self.__outputs
+
+    # returns the absolute position of the left side of this Graph
+    def xleft(self, image_width):
+        return image_width * self.get_x()
+
+    # returns the absolute position of the top of this Graph
+    def ytop(self, image_height):
+        return image_height * self.get_y()
+
+    # returns the absolute position of the right side of this Graph
+    def xright(self, image_width):
+        return self.xleft(image_width) + image_width * self.get_width()
+
+    # returns the absolute position of the bottom of this Graph
+    def ybottom(self, image_height):
+        return self.ytop(image_height) + image_height * self.get_height()
+
+    # returns position of x'th temperature reading along the x-axis
+    def get_x_position_in_range(self, x, max_time, min_time):
+        return (self.__outputs[x].get_time().get_time() - min_time) / (max_time - min_time)
+
+    # returns the x-coordinate of some data point measured at time t, given the max and min time on
+    # the horizontal axis and the width w of the image
+    def get_x_coord(self, w, t, max_time, min_time):
+        return self.xleft(w) + w * self.get_width() * self.get_x_position_in_range(t, max_time, min_time)
+
+    # draws this Graph
+    def draw(self, img, draw):
+        w = img.width
+        h = img.height
+        a, b = self.get_temp_transform(self.ybottom(h) - self.ytop(h))
+
+        self.drawborders(w, h, draw)
+        for axis in self.__axes:
+            axis.draw(img, draw)
+        points = []
+
+        max_time = self.get_max_time()
+        min_time = self.get_min_time()
+
+        for x in range(0, len(self.__outputs)):
+            pt = (self.get_x_coord(w, x, max_time, min_time), self.ybottom(h)
+                  - ((self.__outputs[x].get_value() - a) * b))
+            points.append(pt)
+
+        for x in range(0, len(points) - 1):
+            draw.line([points[x], points[x + 1]], fill=graph_color, width=self.__graph_width)
+
+    # draws the borders of the graph, assuming the origin is (p1.x, p2.y), where
+    # w and h are Image width and height
+    def drawborders(self, w, h, draw):
+        draw.line([(self.xleft(w), self.ytop(h)), (self.xleft(w), self.ybottom(h))], fill=axis_color, width=line_width)
+        draw.line([(self.xleft(w), self.ybottom(h)),
+                   (self.xright(w), self.ybottom(h))], fill=axis_color, width=line_width)
+
+    # returns the transform pair a, b that transforms temperatures by b * (temp - a)
+    def get_temp_transform(self, h):
+        a = self.get_min_temp()
+        a -= (self.get_max_temp() - a) * Graph.distance_between_min_and_x_axis
+        return a, h / (self.get_max_temp() - a)
+
+    # returns the maximum temperature value displayed on this graph
+    def get_max_temp(self):
+        maximum = 0
+        for x in self.__outputs:
+            if maximum < x.get_value():
+                maximum = x.get_value()
+        return maximum
+
+    # returns the minimum temperature value displayed on this graph
+    def get_min_temp(self):
+        minimum = self.__outputs[0].get_value()
+        for x in self.__outputs:
+            if minimum > x.get_value():
+                minimum = x.get_value()
+        return minimum
+
+    # returns the time the last data point was recorded
+    def get_max_time(self):
+        max_time = 0
+        for x in self.__outputs:
+            if max_time < x.get_time().get_time():
+                max_time = x.get_time().get_time()
+        return max_time
+
+    # returns the time the first data point was recorded
+    def get_min_time(self):
+        min_time = self.__outputs[0].get_time().get_time()
+        for x in self.__outputs:
+            if min_time > x.get_time().get_time():
+                min_time = x.get_time().get_time()
+        return min_time
+
+
+# each Table has a list of cells, each of which are a TextBox
+class Table(ImageComponent):
+
+    # a 2-dimensional list of TextBoxes
+    __cells = ()
+
+    # initializes the table
+    def __init__(self, pos, x, y, column_titles, row_titles, column_units, data):
+        ImageComponent.__init__(self, pos, x, y)
+        self.__create_table(column_titles, row_titles, column_units, data)
+
+    # creates the table, given the titles of both columns and rows (optional), and
+    # the data, a 2-dimensional list
+    def __create_table(self, column_titles, row_titles, column_units, data):
+        cells = []
+        for x in column_titles:
+            cells.append([])
+            cells[len(cells) - 1].append(x)
+        for y in row_titles:
+            cells[0].append(y)
+        if len(row_titles) == 0:
+            for x in data:
+                cells[0].append(x)
+        else:
+            for y in range(0, len(cells) - 1):
+                for x in data[y]:
+                    cells[y + 1].append(x)
+        self.__create_textbox_cells(cells, column_units)
+
+    # fills the __cells variable with all of the Table data
+    def __create_textbox_cells(self, cells, column_units):
+        dcol = self.get_width() / len(cells)
+        drow = self.get_height() / len(cells[0])
+        cell_tuple = []
+        for column in range(0, len(cells)):
+            cell_tuple.append([])
+            for row in range(0, len(cells[0])):
+                cell_tuple[len(cell_tuple) - 1].append(TextBox(
+                    cells[column][row], (self.get_x() + (column + .5) * dcol,
+                                         self.get_y() + (row + .5) * drow),
+                    is_cell=True, units=column_units[column]))
+        self.__cells = tuple(cell_tuple)
+
+    # draws this table to the image with drawing strategy draw
+    def draw(self, img, draw):
+        xs = img.width * self.get_x()
+        ys = img.height * self.get_y()
+        dx = img.width * self.get_width() / len(self.__cells)
+        dy = img.height * self.get_height() / len(self.__cells[0])
+
+        for y in range(0, len(self.__cells[0]) + 1):
+            draw.line([(xs, ys + y * dy), (xs + dx * len(self.__cells), ys + y * dy)], fill=table_color, width=2)
+        for x in range(0, len(self.__cells) + 1):
+            draw.line([(xs + x * dx, ys), (xs + x * dx, ys + dy * len(self.__cells[0]))], fill=table_color, width=2)
+
+        for x in self.__cells:
+            for y in x:
+                y.draw(img, draw)
+
+
+# the main method, reads files from location, draws a nice
+# visualization of all important information, then saves it to
+# save_location as a .png image. Automatically closes all open files
+# and cleans resources
+def main():
+    table_files = []
+    date = Date(str(datetime.now()))
+    graph_files = []
+
+    yt = ('T', 'P')
+    units = ('numeral', 'K', 'numeral', 'bar')
+    xt = (1, 2, 5, 6)
+    pressure_chambers = (2, 3, 1, 4)
+    for x in range(0, 100):
+        try:
+            f = FridgeFile(date.tostring(), OutputLine.temperature_format, chamber=graph_data_location[1])
+            f.open()
+            break
+        except FileNotFoundError:
+            try:
+                date.subtract()
+            except IndexError:
+                print('No LOG files have appeared')
+                continue
+            continue
+
+    for y in range(0, len(yt)):
+        table_files.append([])
+        for x in range(0, len(xt)):
+            try:
+                if y == 0:
+                    file_format = OutputLine.temperature_format
+                    table_files[y].append(FridgeFile(date.tostring(), file_format, str(yt[y]), xt[x]))
+                else:
+                    file_format = OutputLine.maxiguage_format
+                    table_files[y].append(FridgeFile(date.tostring(), file_format, str(yt[y])))
+                table_files[y][x].open()
+                if not file_format:
+                    break
+            except FileNotFoundError:
+                print(table_files[y][x].tostring() + ' not found')
+                table_files[y][x] = None
+                pass
+
+    img = Image.new('RGB', (width, height), bg_color)
+    draw = ImageDraw.Draw(img)
+
+    start_time = 0
+    n = 0
+    try:
+        graph_files.append(FridgeFile(date.tostring(), OutputLine.temperature_format, graph_data_location[0],
+                                      graph_data_location[1]))
+        graph_files[0].open()
+
+        start_time = graph_files[0].get_last_measurement_time() - graph_time
+
+        while start_time < 0:
+            n += 1
+            start_time += Time.seconds_in_day()
+            graph_files.append(FridgeFile(date.get_n_days_ago(n).tostring(), OutputLine.temperature_format,
+                                          graph_data_location[0], graph_data_location[1]))
+            graph_files[n].open()
+
+    except FileNotFoundError:
+        print('Graph data not found/partially found')
+        pass
+
+    if graph_files[0] is not None:
+        outputs = graph_files[len(graph_files) - 1].get_outputs(from_time=start_time,
+                                                                add_n_days=len(graph_files) - 1 - n)
+        n -= 1
+        while n >= 0:
+            outputs += graph_files[n].get_outputs(add_n_days=len(graph_files) - 1 - n)
+            n -= 1
+        g = Graph(outputs, (.13, .33), .8, .6, graph_width=2)
+        g.draw(img, draw)
+
+    try:
+        t = TextBox("Data from " + date.to_string_display() + ' at ' +
+                    Time.get_time_without_seconds(graph_files[0].get_last_measurement_time()), (.5, .02), is_cell=True)
+    except IndexError:
+        t = TextBox("Data from " + date.to_string_display(), (.5, .02), is_cell=True)
+    t.draw(img, draw)
+
+    data = [[]]
+    for x in table_files[0]:
+        data[0].append(x.get_last_measurement())
+    data.append([])
+
+    for x in pressure_chambers:
+        try:
+            data[len(data) - 1].append(table_files[1][0].get_last_measurement(chamber=x) / 1000)
+        except AttributeError:
+            print("file not found")
+            data[len(data) - 1].append("no data")
+            pass
+    t_temp = Table((.1, .05), .4, .2, ['Plate', 'Temperature'],
+                   ['40k', '4k', 'Still', 'MC'], units[:2], [data[0]])
+    t_press = Table((.5, .05), .4, .2, ['Guage', 'Pressure'],
+                    ['Still', 'Condense', 'OVC', 'Scroll 1'], units[2:], [data[1]])
+    t_temp.draw(img, draw)
+    t_press.draw(img, draw)
+
+    try:
+        flowmeter_file = FridgeFile(date.tostring(), OutputLine.temperature_format, 'Flowmeter')
+        flowmeter_file.open()
+
+        flow = Table((.65, .27), .23, .05, ['Flow'],
+                     [], ['mol/s'], [TextBox.get_scientific(flowmeter_file.get_last_measurement() / 1000)])
+        flow.draw(img, draw)
+
+        flowmeter_file.close()
+    except FileNotFoundError:
+        print("Flowmeter not found")
+        pass
+
+    try:
+        print('Data from: ' + date.tostring() + ' at ' +
+              Time.get_time_without_seconds(graph_files[0].get_last_measurement_time()))
+    except IndexError:
+        print('Data from: ' + date.tostring())
+
+    # img.show()
+
+    try:
+        img.save(save_to_location + 'fridgelog.png')
+    except FileNotFoundError:
+        file = open(save_to_location + 'fridgelog.png', 'w+')
+        img.save(save_to_location + 'fridgelog.png')
+        file.close()
+
+    img.close()
+    for y in range(0, len(table_files)):
+        for x in range(0, len(table_files[y])):
+            if table_files[y][x] is not None:
+                table_files[y][x].close()
+
+
+# a class that is used to start and stop threads
+class Run:
+    __running = False
+
+    def __init__(self):
+        self.__running = True
+
+    def is_running(self):
+        return self.__running
+
+    def stop(self):
+        self.__running = False
+
+
+run = Run()
+
+
+def wait_for_input():
+    input("")
+    run.stop()
+
+
+_thread.start_new_thread(wait_for_input, ())
+
+if loop:
+    while run.is_running():
+        main()
+        time.sleep(100)
+else:
+    main()
